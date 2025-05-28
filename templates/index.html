@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Anime Explorer</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <div id="splash">
+    <div class="logo">🌸 Anime Explorer</div>
+  </div>
+
+  <div id="controls" class="hidden">
+    <input type="text" id="search" placeholder="Buscar anime...">
+    <select id="genre">
+      <option value="">Todos los géneros</option>
+      <option value="1">Acción</option>
+      <option value="2">Aventura</option>
+      <option value="4">Comedia</option>
+      <option value="8">Drama</option>
+      <option value="10">Fantasia</option>
+      <option value="14">Horror</option>
+      <option value="22">Romance</option>
+      <option value="24">Sci-Fi</option>
+    </select>
+    <div>
+      <button id="prev">⏮ Anterior</button>
+      <button id="next">Siguiente ⏭</button>
+    </div>
+  </div>
+
+  <div class="container fade-in" id="anime-list"></div>
+
+  <div id="modal" class="hidden">
+    <div id="modal-content">
+      <button onclick="cerrarModal()">✖</button>
+      <div id="modal-info"></div>
+    </div>
+  </div>
+
+  <script>
+    let vistos = [];
+    let pagina = 1;
+
+    async function cargarVistos() {
+      const res = await fetch('/api/seen');
+      vistos = await res.json();
+    }
+
+    async function guardarVistos() {
+      await fetch('/api/seen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seen: vistos })
+      });
+    }
+
+    function obtenerEstado(id) {
+      return vistos.find(a => a.mal_id === id) || { mal_id: id, visto: false, capitulo: "" };
+    }
+
+    function toggleVisto(id) {
+      const estado = obtenerEstado(id);
+      estado.visto = !estado.visto;
+      vistos = vistos.filter(a => a.mal_id !== id).concat(estado);
+      guardarVistos();
+      buscar();
+    }
+
+    function cambiarCapitulo(id, valor) {
+      const estado = obtenerEstado(id);
+      estado.capitulo = valor;
+      vistos = vistos.filter(a => a.mal_id !== id).concat(estado);
+      guardarVistos();
+    }
+
+    function mostrar(animes) {
+      const lista = document.getElementById("anime-list");
+      lista.classList.remove("fade-in");
+      void lista.offsetWidth;
+      lista.innerHTML = "";
+      animes.forEach(anime => {
+        const estado = obtenerEstado(anime.mal_id);
+        const card = document.createElement("div");
+        card.className = "card" + (estado.visto ? " visto" : "");
+        card.onclick = () => abrirDetalle(anime.mal_id, anime.title);
+        card.innerHTML = `
+          <img src="${anime.images.jpg.image_url}" alt="${anime.title}">
+          <div class="info">
+            <h3>${anime.title}</h3>
+            <p>⭐ ${anime.score || "N/A"}</p>
+            <button onclick="event.stopPropagation(); toggleVisto(${anime.mal_id})">
+              ${estado.visto ? '✔ Visto' : 'Marcar como visto'}
+            </button>
+            <div class="cap-input">
+              <label>Capítulo:</label>
+              <input type="number" value="${estado.capitulo || ''}" 
+                     onchange="cambiarCapitulo(${anime.mal_id}, this.value); event.stopPropagation();">
+            </div>
+          </div>
+        `;
+        lista.appendChild(card);
+      });
+      lista.classList.add("fade-in");
+    }
+
+    async function abrirDetalle(id, titulo) {
+      const res = await fetch(`https://api.jikan.moe/v4/anime/${id}`);
+      const { data } = await res.json();
+      const cont = document.getElementById("modal-info");
+      let trailerEmbed = "";
+
+      if (data.trailer?.embed_url) {
+        trailerEmbed = `<iframe width="100%" height="315" src="${data.trailer.embed_url}" frameborder="0" allowfullscreen></iframe>`;
+      } else {
+        const searchUrl = `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(titulo + ' trailer')}`;
+        trailerEmbed = `<iframe width="100%" height="315" src="${searchUrl}" frameborder="0" allowfullscreen></iframe>`;
+      }
+
+      cont.innerHTML = `
+        <h2>${data.title}</h2>
+        <p>${data.synopsis || "Sin descripción."}</p>
+        ${trailerEmbed}
+      `;
+      document.getElementById("modal").classList.remove("hidden");
+    }
+
+    function cerrarModal() {
+      document.getElementById("modal").classList.add("hidden");
+    }
+
+    async function buscar() {
+      const query = document.getElementById("search").value;
+      const genero = document.getElementById("genre").value;
+      let url = `https://api.jikan.moe/v4/anime?page=${pagina}&limit=24`;
+      if (query) url += `&q=${encodeURIComponent(query)}`;
+      if (genero) url += `&genres=${genero}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      mostrar(data.data);
+    }
+
+    document.getElementById("search").addEventListener("input", () => {
+      pagina = 1;
+      buscar();
+    });
+    document.getElementById("genre").addEventListener("change", () => {
+      pagina = 1;
+      buscar();
+    });
+    document.getElementById("prev").addEventListener("click", () => {
+      if (pagina > 1) {
+        pagina--;
+        buscar();
+      }
+    });
+    document.getElementById("next").addEventListener("click", () => {
+      pagina++;
+      buscar();
+    });
+
+    window.addEventListener("DOMContentLoaded", async () => {
+      await cargarVistos();
+      setTimeout(() => {
+        document.getElementById("splash").style.display = "none";
+        document.getElementById("controls").classList.remove("hidden");
+        buscar();
+      }, 2000);
+    });
+  </script>
+
+</body>
+</html>
